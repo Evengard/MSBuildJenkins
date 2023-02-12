@@ -11,7 +11,8 @@ namespace MSBuildJenkins
     {
         private readonly JsonSerializerOptions _jsonOpts;
         private readonly string _workDir = Environment.CurrentDirectory;
-        private StreamWriter _file;
+        private Lazy<StreamWriter> _lazyFile;
+        private StreamWriter _file => _lazyFile.Value;
 
         public WarningsNGLogger() : base()
         {
@@ -40,16 +41,22 @@ namespace MSBuildJenkins
 
         public override void Initialize(IEventSource eventSource)
         {
-            var filename = "issues.json.log";
-            if (Parameters != null)
-            {
-                string[] parameters = Parameters.Split(';');
-                filename = parameters[0];
-            }
-            _file = new StreamWriter(filename);
-
             eventSource.ErrorRaised += ErrorRaised;
             eventSource.WarningRaised += WarningRaised;
+            _lazyFile = new Lazy<StreamWriter>(() =>
+            {
+                var filename = "issues.json.log";
+                if (Parameters != null)
+                {
+                    string[] parameters = Parameters.Split(';');
+                    filename = parameters[0];
+                }
+                if (!Path.IsPathRooted(filename))
+                {
+                    filename = Path.Combine(_workDir, filename);
+                }
+                return new StreamWriter(filename);
+            });
         }
 
         private void WarningRaised(object sender, BuildWarningEventArgs e)
@@ -118,8 +125,11 @@ namespace MSBuildJenkins
 
         public override void Shutdown()
         {
-            _file.Flush();
-            _file.Dispose();
+            if (_lazyFile.IsValueCreated)
+            {
+                _file.Flush();
+                _file.Dispose();
+            }
             base.Shutdown();
         }
     }
